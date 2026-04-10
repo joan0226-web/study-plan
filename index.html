@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>學生讀書計畫管理系統</title>
+
+<style>
+body { font-family: Arial; margin: 0; }
+
+nav {
+  background: #ffd6e7;
+  color: #333;
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-family: "Microsoft JhengHei", Arial;
+}
+
+nav button {
+  background: transparent;
+  color: #444;
+  border: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+nav button:hover {
+  background: rgba(0,0,0,0.08);
+}
+
+.container { padding: 20px; }
+.hidden { display: none; }
+
+.layout {
+  display: flex;
+}
+
+.left, .right {
+  flex: 1;
+  padding: 20px;
+}
+
+.task { margin-left: 20px; }
+.done { text-decoration: line-through; color: gray; }
+
+.task button, h3 button {
+  margin-left: 6px;
+  border: none;
+  background: rgba(0,0,0,0.05);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.task button:hover, h3 button:hover {
+  background: rgba(0,0,0,0.15);
+}
+
+/* 行事曆 */
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.day {
+  border: 1px solid #ccc;
+  min-height: 90px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.today {
+  background: #ffe4ef;
+  border: 2px solid #ff8ab5;
+}
+
+.plan {
+  background: #ffd6e7;
+  margin-top: 3px;
+  padding: 2px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+  <button onclick="location.hash='login'">登入</button>
+  <button onclick="location.hash='register'">註冊</button>
+  <button onclick="location.hash='app'">系統</button>
+  <button onclick="logout()">登出</button>
+</nav>
+
+<div id="login" class="container">
+  <h2>🔐 登入</h2>
+  <input id="loginUser" placeholder="帳號">
+  <input id="loginPass" type="password" placeholder="密碼">
+  <button onclick="login()">登入</button>
+</div>
+
+<div id="register" class="container hidden">
+  <h2>📝 註冊</h2>
+  <input id="regUser" placeholder="帳號">
+  <input id="regPass" type="password" placeholder="密碼">
+  <button onclick="register()">註冊</button>
+</div>
+
+<div id="app" class="container hidden">
+  <div class="layout">
+
+    <!-- 左 -->
+    <div class="left">
+      <h1>📚 學生讀書計畫管理系統</h1>
+
+      <h2>➕ 建立讀書計畫</h2>
+      <input id="student" placeholder="計畫名稱">
+      <input id="planTitle" placeholder="任務內容">
+      <input id="planDate" type="date">
+      <button onclick="addPlan()">新增計畫</button>
+
+      <h2>📋 計畫列表</h2>
+      <div id="plans"></div>
+    </div>
+
+    <!-- 右 -->
+    <div class="right">
+      <h2>
+        📅 <span id="monthTitle"></span>
+        <button onclick="changeMonth(-1)">◀</button>
+        <button onclick="changeMonth(1)">▶</button>
+      </h2>
+
+      <div id="calendar" class="calendar"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let users = JSON.parse(localStorage.getItem('users')) || [];
+let plans = JSON.parse(localStorage.getItem('plans')) || [];
+let currentUser = null;
+let currentMonth = new Date();
+
+/* ===== 基本 ===== */
+
+function showPage(page) {
+  if (page === 'app' && !currentUser) {
+    alert('請先登入');
+    return;
+  }
+
+  ['login','register','app'].forEach(id =>
+    document.getElementById(id).classList.add('hidden')
+  );
+
+  document.getElementById(page).classList.remove('hidden');
+}
+
+function register() {
+  const u = regUser.value;
+  const p = regPass.value;
+  if (!u || !p) return alert('請輸入完整資料');
+
+  users.push({ u, p });
+  localStorage.setItem('users', JSON.stringify(users));
+  alert('註冊成功');
+  showPage('login');
+}
+
+function login() {
+  const found = users.find(x => x.u === loginUser.value && x.p === loginPass.value);
+  if (!found) return alert('帳號或密碼錯誤');
+
+  currentUser = loginUser.value;
+  alert('登入成功');
+  showPage('app');
+  render();
+  renderCalendar();
+}
+
+function logout() {
+  currentUser = null;
+  showPage('login');
+}
+
+/* ===== 計畫 ===== */
+
+function addPlan() {
+  const student = document.getElementById('student').value;
+  const title = document.getElementById('planTitle').value;
+  const date = document.getElementById('planDate').value;
+
+  if (!student || !title || !date) return alert("請輸入完整資料");
+
+  plans.push({
+    id: Date.now(),
+    student,
+    title,
+    date,
+    tasks: [],
+    owner: currentUser
+  });
+
+  save();
+}
+
+/* 任務 */
+function addTask(planId) {
+  const taskName = prompt("輸入任務名稱");
+  if (!taskName) return;
+
+  const plan = plans.find(p => p.id === planId);
+  plan.tasks.push({ id: Date.now(), name: taskName, done: false });
+
+  save();
+}
+
+function toggleTask(planId, taskId) {
+  const task = plans.find(p => p.id === planId).tasks.find(t => t.id === taskId);
+  task.done = !task.done;
+  save();
+}
+
+function editTask(planId, taskId) {
+  const task = plans.find(p => p.id === planId).tasks.find(t => t.id === taskId);
+  const newName = prompt("修改任務名稱", task.name);
+  if (!newName) return;
+  task.name = newName;
+  save();
+}
+
+function deleteTask(planId, taskId) {
+  if (!confirm("確定刪除任務？")) return;
+  const plan = plans.find(p => p.id === planId);
+  plan.tasks = plan.tasks.filter(t => t.id !== taskId);
+  save();
+}
+
+/* 計畫 */
+function editPlan(planId) {
+  const plan = plans.find(p => p.id === planId);
+  const newTitle = prompt("修改計畫名稱", plan.title);
+  if (!newTitle) return;
+  plan.title = newTitle;
+  save();
+}
+
+function deletePlan(planId) {
+  if (!confirm("確定刪除計畫？")) return;
+  plans = plans.filter(p => p.id !== planId);
+  save();
+}
+
+/* ===== 儲存 ===== */
+
+function save() {
+  localStorage.setItem('plans', JSON.stringify(plans));
+  render();
+  renderCalendar();
+}
+
+/* ===== 渲染 ===== */
+
+function render() {
+  const container = document.getElementById('plans');
+  container.innerHTML = '';
+
+  plans.filter(p => p.owner === currentUser).forEach(plan => {
+    const div = document.createElement('div');
+
+    div.innerHTML = `
+      <h3>
+        👨‍🎓 ${plan.student} - ${plan.title} (${plan.date})
+        <button onclick="editPlan(${plan.id})">✏️</button>
+        <button onclick="deletePlan(${plan.id})">🗑️</button>
+      </h3>
+
+      <button onclick="addTask(${plan.id})">➕ 新增任務</button>
+
+      <ul>
+        ${plan.tasks.map(task => `
+          <li class="task ${task.done ? 'done' : ''}">
+            <input type="checkbox" ${task.done ? 'checked' : ''}
+              onclick="toggleTask(${plan.id}, ${task.id})">
+
+            ${task.name}
+
+            <button onclick="editTask(${plan.id}, ${task.id})">✏️</button>
+            <button onclick="deleteTask(${plan.id}, ${task.id})">🗑️</button>
+          </li>
+        `).join('')}
+      </ul>
+      <hr>
+    `;
+
+    container.appendChild(div);
+  });
+}
+
+/* ===== 行事曆 ===== */
+
+function renderCalendar() {
+  const cal = document.getElementById('calendar');
+  cal.innerHTML = '';
+
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+
+  // ✅ 顯示年月
+  document.getElementById('monthTitle').innerText = `${year} 年 ${month + 1} 月`;
+
+  const today = new Date();
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+
+  for (let i = 0; i < firstDay; i++) {
+    cal.innerHTML += `<div></div>`;
+  }
+
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+    const dayPlans = plans.filter(p => p.owner === currentUser && p.date === dateStr);
+
+    const isToday =
+      d === today.getDate() &&
+      month === today.getMonth() &&
+      year === today.getFullYear();
+
+    const div = document.createElement('div');
+    div.className = 'day ' + (isToday ? 'today' : '');
+
+    div.onclick = () => {
+      document.getElementById('planDate').value = dateStr;
+    };
+
+    div.innerHTML = `
+      <b>${d}</b>
+      ${dayPlans.map(p => `<div class="plan">${p.student}</div>`).join('')}
+    `;
+
+    cal.appendChild(div);
+  }
+}
+
+function changeMonth(offset) {
+  currentMonth.setMonth(currentMonth.getMonth() + offset);
+  renderCalendar();
+}
+
+/* 路由 */
+function handleRoute() {
+  const hash = location.hash.replace('#','');
+  showPage(hash || 'login');
+}
+
+window.addEventListener('hashchange', handleRoute);
+handleRoute();
+</script>
+
+</body>
+</html>
